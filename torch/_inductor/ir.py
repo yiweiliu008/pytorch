@@ -2730,6 +2730,8 @@ class DtypeView(BaseView):
 
 
 class SliceView(View):
+    layout: Layout
+
     @classmethod
     def normalize_start_end(cls, x, dim, start, end):
         """
