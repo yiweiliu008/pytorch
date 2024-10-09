@@ -10,6 +10,7 @@ from torch.utils.weak import WeakTensorKeyDictionary
 
 _tensor_id_counter = 0
 _tensor_symint_registry = WeakTensorKeyDictionary()
+_rebuild_njt = torch.nested._rebuild_njt
 
 
 def get_tensor_symint(tensor, *, coeff=1):
@@ -43,11 +44,6 @@ def _store_val_in_tensor(val) -> torch.Tensor:
 
 def _load_val_from_tensor(t: torch.Tensor):
     return t.shape[0]
-
-
-# serialization function must be defined at top level
-def _rebuild_njt(constructor_kwargs):
-    return NestedTensor(**constructor_kwargs)
 
 
 class NestedTensor(torch.Tensor):
