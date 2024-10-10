@@ -1918,6 +1918,31 @@ class FakeTensorMode(TorchDispatchMode):
                         assert self.shape_env is not None
                         self.shape_env.set_unbacked_var_to_val(t.node.expr, real_t)
 
+                # use real values to check for potentially mismatched fake/real kernels
+                def _check_prim_or_sym_values(fake, real):
+                    if isinstance(fake, (SymInt, SymFloat)):
+                        # symbolic expression, ask ShapeEnv if it's sure of inequality.
+                        assert self.shape_env is not None
+                        assert self.shape_env._maybe_evaluate_static(sympy.Ne(t.node.expr, real_t)) is not True, \
+                            f"Real tensor propagation found a mismatch between fake value {t} and real value {real_t}, " \
+                            f" for func: {func}"
+                    elif isinstance(t, (int, float, bool)):  # concrete value, check direct equality
+                        assert t == real_t, \
+                            f"Real tensor propagation found a mismatch between fake value {t} and real value {real_t}, " \
+                            f" for func: {func}"
+
+                if isinstance(t, torch.Tensor):
+                    assert t.dtype == real_t.dtype, \
+                    f"Real tensor propagation found a dtype mismatch between fake value {t} with dtype {t.dtype}," \
+                    f"and real value {real_t} with dtype {real_t.dtype}, for func: {func}"
+                    for s_fake, s_real in zip(t.size(), real_t.size()):
+                        _check_prim_or_sym_values(s_fake, s_real)
+                    for s_fake, s_real in zip(t.stride(), real_t.stride()):
+                        _check_prim_or_sym_values(s_fake, s_real)
+                    _check_prim_or_sym_values(t.storage_offset(), real_t.storage_offset())
+                elif isinstance(t, (int, float, bool) + py_sym_types):
+                    _check_prim_or_sym_values(t, real_t)
+
             if real_out is not nil:
                 if (
                     not isinstance(fake_out, Tensor)
