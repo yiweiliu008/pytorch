@@ -8,6 +8,7 @@ import torch._inductor
 import torch._inductor.decomposition
 from functorch.compile import aot_function, nop
 from functorch.experimental.control_flow import UnsupportedAliasMutationException
+from torch._dynamo.testing import EagerAndRecordGraphs
 from torch.testing._internal.common_utils import run_tests, TestCase
 
 
@@ -156,6 +157,95 @@ class TestInvokeSubgraph(TestCase):
 
         self.assertEqual(ref, res)
         self.assertEqual(x.grad, x_clone.grad)
+
+
+class TestInvokeSubgraphCompile(TestCase):
+    def test_simple(self):
+        def gn(x, y):
+            return (torch.mul(x, y),)
+
+        def fn(x, y):
+            return invoke_subgraph(gn, "subgraph", (x, y))[0]
+
+        x = torch.randn(8, requires_grad=True)
+        y = torch.randn(8, requires_grad=True)
+        ref = gn(x, y)[0]
+
+        x_clone = x.clone().detach().requires_grad_(True)
+        y_clone = y.clone().detach().requires_grad_(True)
+        res = torch.compile(fn, backend="aot_eager")(x_clone, y_clone)
+
+        # Run backward
+        ref.sum().backward()
+        res.sum().backward()
+
+        self.assertEqual(ref, res)
+        self.assertEqual(x.grad, x_clone.grad)
+        self.assertEqual(y.grad, y_clone.grad)
+
+    def test_multiple(self):
+        def gn(x, y):
+            return (torch.mul(x, y),)
+
+        def fn(x, y):
+            a = invoke_subgraph(gn, "subgraph", (x, y))[0]
+            return invoke_subgraph(gn, "subgraph", (a, y))[0]
+
+        x = torch.randn(8, requires_grad=True)
+        y = torch.randn(8, requires_grad=True)
+        ref = fn(x, y)
+
+        x_clone = x.clone().detach().requires_grad_(True)
+        y_clone = y.clone().detach().requires_grad_(True)
+        backend = EagerAndRecordGraphs()
+        res = torch.compile(fn, backend=backend)(x_clone, y_clone)
+
+        # Run backward
+        ref.sum().backward()
+        res.sum().backward()
+
+        self.assertEqual(ref, res)
+        self.assertEqual(x.grad, x_clone.grad)
+        self.assertEqual(y.grad, y_clone.grad)
+
+        # Check that the Dynamo graph has just one subgraph module
+        self.assertEqual(len(backend.graphs), 1)
+        subgraph_attr_names = set()
+        for node in backend.graphs[0].graph.nodes:
+            if node.op == "get_attr":
+                subgraph_attr_names.add(node.target)
+        self.assertEqual(len(subgraph_attr_names), 1)
+
+    def test_nonlocal_update(self):
+        counter = 2
+
+        def gn(x, y):
+            nonlocal counter
+            return (torch.mul(x, y) * counter,)
+
+        def fn(x, y):
+            nonlocal counter
+            a = invoke_subgraph(gn, "subgraph", (x, y))[0]
+            counter = 3
+            return invoke_subgraph(gn, "subgraph", (a, y))[0]
+
+        x = torch.randn(8, requires_grad=True)
+        y = torch.randn(8, requires_grad=True)
+        ref = fn(x, y)
+
+        counter = 2
+
+        x_clone = x.clone().detach().requires_grad_(True)
+        y_clone = y.clone().detach().requires_grad_(True)
+        res = torch.compile(fn, backend="aot_eager")(x_clone, y_clone)
+
+        # Run backward
+        ref.sum().backward()
+        res.sum().backward()
+
+        self.assertEqual(ref, res)
+        self.assertEqual(x.grad, x_clone.grad)
+        self.assertEqual(y.grad, y_clone.grad)
 
 
 if __name__ == "__main__":
