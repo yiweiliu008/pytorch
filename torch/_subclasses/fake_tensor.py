@@ -1919,26 +1919,20 @@ class FakeTensorMode(TorchDispatchMode):
                         self.shape_env.set_unbacked_var_to_val(t.node.expr, real_t)
 
             # use real values to check for potentially mismatched fake/real kernels
-            def _check_prop_values(fake, real):
+            def _fake_real_mismatch(fake, real) -> Optional[bool]:
                 if isinstance(fake, (SymInt, SymFloat)):
                     # symbolic expression, ask ShapeEnv if it's sure of inequality.
                     assert self.shape_env is not None
-                    assert (
+                    return (
                         self.shape_env._maybe_evaluate_static(
                             sympy.Ne(fake.node.expr, real)
                         )
-                        is not sympy.logic.boolalg.BooleanTrue,
-                    ), (
-                        f"Real tensor propagation found a mismatch between fake value {fake} and real value {real}, "
-                        f" for func: {func}"
-                    )
+                    ) is sympy.S.true
                 elif isinstance(
                     fake, (int, float, bool)
                 ):  # concrete value, check direct equality
-                    assert fake == real, (
-                        f"Real tensor propagation found a mismatch between fake value {fake} and real value {real}, "
-                        f" for func: {func}"
-                    )
+                    return fake != real
+                return False
 
             if real_out is not nil:
                 if (
@@ -1961,10 +1955,18 @@ class FakeTensorMode(TorchDispatchMode):
                         f"Real tensor propagation found a dtype mismatch between fake value {fake_out} with dtype {fake_out.dtype},"
                         f"and real value {real_out} with dtype {real_out.dtype}, for func: {func}"
                     )
-                    for s_fake, s_real in zip(fake_out.size(), real_out.size()):
-                        _check_prop_values(s_fake, s_real)
+                    for i, (s_fake, s_real) in enumerate(zip(fake_out.size(), real_out.size())):
+                        if _fake_real_mismatch(s_fake, s_real):
+                            raise AssertionError(
+                                f"Real tensor propagation found a mismatch between fake shape {s_fake} and real shape {s_real} "
+                                f"at dimension {i} for func: {func}"
+                            )
                 elif isinstance(fake_out, (int, float, bool) + py_sym_types):
-                    _check_prop_values(fake_out, real_out)                    
+                    if _fake_real_mismatch(fake_out, real_out):
+                        raise AssertionError(
+                            f"Real tensor propagation found a mismatch between fake output value {fake_out} and real output value {real_out}, "
+                            f" for func: {func}"
+                        )
 
                 # If a data-dependent op is used in a decomposition, we
                 # may need to get the unbacked settings "early"
