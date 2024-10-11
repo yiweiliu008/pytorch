@@ -939,6 +939,10 @@ class triton:
         os.environ.get("TORCHINDUCTOR_PERSISTENT_REDUCTIONS", "1") == "1"
     )
 
+    # used to debug persistent reduction codegen
+    # always enable persistent reductions when size is below the provided
+    force_persistent_reductions_threshold: Optional[int] = None
+
     # 0/False: disable
     # 1/True: enable, use tuning to pick between different subkernels
     # 2: enable, force using persistent reduction (for debugging)
