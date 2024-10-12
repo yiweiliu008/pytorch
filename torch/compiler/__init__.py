@@ -12,6 +12,7 @@ __all__ = [
     "substitute_in_graph",
     "list_backends",
     "disable",
+    "set_stance",
     "cudagraph_mark_step_begin",
     "wrap_numpy",
     "is_compiling",
@@ -216,7 +217,7 @@ def assume_constant_result(fn):
 
 def disable(fn=None, recursive=True):
     """
-    This function provides both a decorator and a context manager to disable compilation on a function
+    This function provides a decorator to disable compilation on a function
     It also provides the option of recursively disabling called functions
 
     Args:
@@ -226,6 +227,26 @@ def disable(fn=None, recursive=True):
     import torch._dynamo
 
     return torch._dynamo.disable(fn, recursive)
+
+
+def set_stance(stance: str):
+    """
+    Set the current stance of the compiler.
+    Can be used as a function, context manager, or decorator.
+    Do not use this function inside a `torch.compile` region - an error will be raised otherwise.
+
+    Args:
+        stance: The stance to set the compiler to. Valid values are:
+            - "default": The default stance, used for normal compilation.
+            - "force_eager": Ignore all `torch.compile` directives.
+    """
+    import torch._dynamo
+
+    return torch._dynamo.set_stance(stance)
+
+
+# forbid in graph
+set_stance._dynamo_forbidden = True  # type: ignore[attr-defined]
 
 
 def cudagraph_mark_step_begin():
