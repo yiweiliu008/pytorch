@@ -291,9 +291,10 @@ def foreach_all_gather_copy_out(
         out = [t.view(world_size, -1).view(torch.uint8) for t in split_with_sizes_out]
     else:
         out = [t.view(world_size, -1) for t in split_with_sizes_out]
-    torch.ops.fsdp.split_with_sizes_copy(
-        all_gather_output, all_gather_input_split_sizes, dim=1, out=out
-    )
+    with torch.autograd._unsafe_preserve_version_counter(out):
+        torch.ops.fsdp.split_with_sizes_copy(
+            all_gather_output, all_gather_input_split_sizes, dim=1, out=out
+        )
 
     for fsdp_param, param_all_gather_outputs in shard_i_copy_infos:
         # Chunk-cat from the temporary to the final all-gather output tensors
